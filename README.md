@@ -1,4 +1,4 @@
-# Wallet Service (Dino Ventures Backend Assignment)
+# Wallet Service
 
 Production-grade closed-loop wallet service using:
 - Node.js (TypeScript)
