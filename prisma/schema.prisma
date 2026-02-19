@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WalletOwnerType {
+  USER
+  SYSTEM
+}
+
+enum TransactionType {
+  TOPUP
+  BONUS
+  SPEND
+}
+
+enum TransactionStatus {
+  PROCESSING
+  POSTED
+  FAILED
+}
+
+enum EntryType {
+  DEBIT
+  CREDIT
+}
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  wallets Wallet[]
+
+  @@map("users")
+}
+
+model AssetType {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  wallets       Wallet[]
+  transactions  Transaction[]
+  ledgerEntries LedgerEntry[]
+
+  @@map("asset_types")
+}
+
+model Wallet {
+  id          String          @id @default(uuid()) @db.Uuid
+  userId      String?         @map("user_id") @db.Uuid
+  ownerType   WalletOwnerType @map("owner_type")
+  systemCode  String?         @map("system_code")
+  assetTypeId String          @map("asset_type_id") @db.Uuid
+  version     Int             @default(0)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user        User?         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  assetType   AssetType     @relation(fields: [assetTypeId], references: [id], onDelete: Restrict)
+  ledgerItems LedgerEntry[]
+  sourceTxns  Transaction[] @relation("source_wallet")
+  targetTxns  Transaction[] @relation("destination_wallet")
+
+  @@unique([ownerType, userId, assetTypeId], map: "uq_wallet_owner_user_asset")
+  @@unique([ownerType, systemCode, assetTypeId], map: "uq_wallet_owner_system_asset")
+  @@index([userId, assetTypeId], map: "idx_wallet_user_asset")
+  @@index([ownerType, systemCode], map: "idx_wallet_system")
+  @@index([ownerType, assetTypeId, version], map: "idx_wallet_owner_asset_version")
+  @@map("wallets")
+}
+
+model Transaction {
+  id                String            @id @default(uuid()) @db.Uuid
+  idempotencyKey    String            @unique @map("idempotency_key")
+  requestHash       String            @map("request_hash")
+  type              TransactionType
+  status            TransactionStatus @default(PROCESSING)
+  amount            BigInt
+  assetTypeId       String            @map("asset_type_id") @db.Uuid
+  sourceWalletId    String            @map("source_wallet_id") @db.Uuid
+  destinationWalletId String          @map("destination_wallet_id") @db.Uuid
+  responseCode      Int?              @map("response_code")
+  responseBody      Json?             @map("response_body")
+  errorCode         String?           @map("error_code")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  assetType        AssetType     @relation(fields: [assetTypeId], references: [id], onDelete: Restrict)
+  sourceWallet     Wallet        @relation("source_wallet", fields: [sourceWalletId], references: [id], onDelete: Restrict)
+  destinationWallet Wallet       @relation("destination_wallet", fields: [destinationWalletId], references: [id], onDelete: Restrict)
+  ledgerEntries    LedgerEntry[]
+
+  @@index([assetTypeId, createdAt], map: "idx_tx_asset_created")
+  @@index([status, createdAt], map: "idx_tx_status_created")
+  @@index([type, assetTypeId, createdAt], map: "idx_tx_type_asset_created")
+  @@index([sourceWalletId], map: "idx_tx_source_wallet")
+  @@index([destinationWalletId], map: "idx_tx_destination_wallet")
+  @@map("transactions")
+}
+
+model LedgerEntry {
+  id            String   @id @default(uuid()) @db.Uuid
+  transactionId String   @map("transaction_id") @db.Uuid
+  walletId      String   @map("wallet_id") @db.Uuid
+  assetTypeId   String   @map("asset_type_id") @db.Uuid
+  entryType     EntryType @map("entry_type")
+  amount        BigInt
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  wallet      Wallet      @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  assetType   AssetType   @relation(fields: [assetTypeId], references: [id], onDelete: Restrict)
+
+  @@index([walletId, assetTypeId, createdAt], map: "idx_ledger_wallet_asset_created")
+  @@index([assetTypeId, walletId, entryType, createdAt], map: "idx_ledger_asset_wallet_entry_created")
+  @@index([transactionId], map: "idx_ledger_transaction")
+  @@map("ledger_entries")
+}

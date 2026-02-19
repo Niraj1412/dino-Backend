@@ -1,0 +1,1 @@
+export const bigintToString = (value: bigint): string => value.toString();
